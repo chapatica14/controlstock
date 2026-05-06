@@ -1,0 +1,74 @@
+# ============================================================
+#  ControloStock · Docker Compose
+#  Autor : Gonçalo Chapatica
+
+#
+#  Orquestra 3 serviços (camadas da arquitectura):
+#    1. frontend  — Vue.js servido por Nginx   (porta 80)
+#    2. backend   — API REST em Flask/Python   (porta 5000)
+#    3. db        — Base de dados MySQL 8      (porta 3306)
+# ============================================================
+
+version: "3.9"
+
+services:
+
+  # ── CAMADA 3: BASE DE DADOS ──────────────────────────────
+  db:
+    image: mysql:8.0
+    container_name: controlstock_db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: senha123
+      MYSQL_DATABASE:      controlstock
+    volumes:
+      - dados_mysql:/var/lib/mysql                                      # persistência dos dados
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql        # criação das tabelas
+    ports:
+      - "3306:3306"
+    networks:
+      - rede_app
+    healthcheck:
+      test:     ["CMD", "mysqladmin", "ping", "-h", "localhost", "-psenha123"]
+      interval: 10s
+      timeout:  5s
+      retries:  5
+
+  # ── CAMADA 2: BACKEND ────────────────────────────────────
+  backend:
+    build: ./backend
+    container_name: controlstock_backend
+    restart: always
+    environment:
+      DB_HOST:     db           # nome do serviço da BD (DNS interno do Docker)
+      DB_USER:     root
+      DB_PASSWORD: senha123
+      DB_NAME:     controlstock
+    ports:
+      - "5000:5000"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - rede_app
+
+  # ── CAMADA 1: FRONTEND ───────────────────────────────────
+  frontend:
+    build: ./frontend
+    container_name: controlstock_frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - rede_app
+
+# ── VOLUMES ──────────────────────────────────────────────
+volumes:
+  dados_mysql:      # os dados da BD sobrevivem a reinícios dos containers
+
+# ── REDES ────────────────────────────────────────────────
+networks:
+  rede_app:
+    driver: bridge  # rede privada entre os 3 containers
