@@ -1,0 +1,49 @@
+/* ============================================================
+   ControloStock · Estilos Globais
+   Para mudar o tema do sistema inteiro, edita as variáveis
+   na secção :root abaixo.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  /* Cores principais — muda aqui para alterar o tema */
+  --cor-primaria:    #10b981;   /* verde esmeralda */
+  --cor-primaria-2:  #34d399;   /* verde claro (gradiente) */
+  --cor-erro:        #ef4444;   /* vermelho */
+  --cor-aviso:       #f59e0b;   /* amarelo */
+  --cor-info:        #3b82f6;   /* azul */
+
+  /* Fundos */
+  --bg-pagina:   #0a0e1a;
+  --bg-card:     #111827;
+  --bg-input:    #1a2235;
+
+  /* Bordas e texto */
+  --borda:       #1e2d45;
+  --texto:       #e2e8f0;
+  --texto-fraco: #64748b;
+
+  /* Tipografia */
+  --fonte:       'Inter', sans-serif;
+  --fonte-mono:  'JetBrains Mono', monospace;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--fonte);
+  background: var(--bg-pagina);
+  color: var(--texto);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar discreta */
+::-webkit-scrollbar       { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--bg-pagina); }
+::-webkit-scrollbar-thumb { background: var(--borda); border-radius: 3px; }
