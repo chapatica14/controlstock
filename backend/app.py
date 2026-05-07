@@ -1,8 +1,6 @@
 # ============================================================
 #  ControloStock · Backend API (Flask + MySQL)
 #  Autor : Gonçalo Chapatica
-#  Curso : Licenciatura em Informática · 3.º Ano
-#  UC    : INFC-0015 – Computação na Nuvem · UTDEG · 2026
 # ============================================================
 
 from flask import Flask, request, jsonify
@@ -15,7 +13,12 @@ import os
 
 app = Flask(__name__)
 CORS(app)
-
+@app.route("/")
+def home():
+    return jsonify({
+        "mensagem": "ControlStock Backend Online",
+        "status": "OK"
+    })
 # Sessões activas: { token: { id, username, nome } }
 _sessoes = {}
 
