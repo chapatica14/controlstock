@@ -72,19 +72,6 @@
           <span v-else>Entrar →</span>
         </button>
 
-        <!-- Credenciais de demonstração -->
-        <div class="demo">
-          <span class="demo-titulo">Conta de demonstração</span>
-          <div class="demo-linha">
-            <span>Utilizador</span>
-            <code @click="login.username = 'admin'">admin</code>
-          </div>
-          <div class="demo-linha">
-            <span>Senha</span>
-            <code @click="login.senha = 'admin123'">admin123</code>
-          </div>
-        </div>
-
         <p class="link-aba">
           Não tens conta?
           <a @click.prevent="mudarAba('registo')">Regista-te aqui</a>
