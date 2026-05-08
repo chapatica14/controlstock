@@ -1,13 +1,12 @@
 # ============================================================
-#  ControloStock · Backend API (Flask + MySQL)
+#  ControloStock · Backend API (Flask + PostgreSQL)
 #  Autor : Gonçalo Chapatica
-#  Curso : Licenciatura em Informática · 3.º Ano
-#  UC    : INFC-0015 – Computação na Nuvem · UTDEG · 2026
 # ============================================================
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import mysql.connector
+import psycopg2
+import psycopg2.extras
 import hashlib
 import secrets
 import re
@@ -16,51 +15,71 @@ import os
 app = Flask(__name__)
 CORS(app)
 
-# Sessões activas: { token: { id, username, nome } }
 _sessoes = {}
 
 
-# ----------------------------------------------------------
-# BASE DE DADOS
-# ----------------------------------------------------------
-
 def db_connect():
-    """Cria e retorna uma ligação à base de dados MySQL."""
-    return mysql.connector.connect(
-        host     = os.environ.get("DB_HOST",     "db"),
-        user     = os.environ.get("DB_USER",     "root"),
-        password = os.environ.get("DB_PASSWORD", "senha123"),
-        database = os.environ.get("DB_NAME",     "controlstock")
+    database_url = os.environ.get("DATABASE_URL")
+    if database_url:
+        return psycopg2.connect(database_url)
+    return psycopg2.connect(
+        host=os.environ.get("DB_HOST", "localhost"),
+        port=os.environ.get("DB_PORT", "5432"),
+        user=os.environ.get("DB_USER", "postgres"),
+        password=os.environ.get("DB_PASSWORD", "senha123"),
+        dbname=os.environ.get("DB_NAME", "controlstock")
     )
 
 
-# ----------------------------------------------------------
-# UTILITÁRIOS
-# ----------------------------------------------------------
+def init_db():
+    conn = db_connect()
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS utilizadores (
+            id           SERIAL PRIMARY KEY,
+            nome         VARCHAR(100) NOT NULL,
+            username     VARCHAR(50)  NOT NULL UNIQUE,
+            email        VARCHAR(100) NOT NULL UNIQUE,
+            senha        VARCHAR(64)  NOT NULL,
+            data_registo TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS produtos (
+            id           SERIAL PRIMARY KEY,
+            nome         VARCHAR(100)  NOT NULL,
+            categoria    VARCHAR(100)  NOT NULL,
+            quantidade   INTEGER       NOT NULL DEFAULT 0,
+            preco        NUMERIC(10,2) NOT NULL,
+            data_registo TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    cursor.execute("""
+        INSERT INTO utilizadores (nome, username, email, senha)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (username) DO NOTHING
+    """, ('Administrador', 'admin', 'admin@controlstock.mz',
+          '240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9'))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
 
 def sha256(text):
-    """Retorna o hash SHA-256 de uma string."""
     return hashlib.sha256(text.encode()).hexdigest()
 
 
 def autenticado(req):
-    """Verifica se o pedido contém um token de sessão válido."""
     token = req.headers.get("Authorization", "").replace("Bearer ", "")
     return token in _sessoes
 
 
 def get_token(req):
-    """Extrai o token do cabeçalho Authorization."""
     return req.headers.get("Authorization", "").replace("Bearer ", "")
 
 
-# ----------------------------------------------------------
-# AUTENTICAÇÃO
-# ----------------------------------------------------------
-
 @app.route("/auth/registo", methods=["POST"])
 def registo():
-    """Cria uma nova conta de utilizador."""
     body     = request.get_json()
     nome     = body.get("nome",     "").strip()
     username = body.get("username", "").strip()
@@ -75,7 +94,7 @@ def registo():
         return jsonify({"erro": "Endereço de email inválido."}), 400
 
     try:
-        conn   = db_connect()
+        conn = db_connect()
         cursor = conn.cursor()
         cursor.execute(
             "INSERT INTO utilizadores (nome, username, email, senha) VALUES (%s, %s, %s, %s)",
@@ -85,15 +104,17 @@ def registo():
         cursor.close()
         conn.close()
         return jsonify({"mensagem": "Conta criada. Podes fazer login agora."}), 201
-
-    except mysql.connector.IntegrityError as err:
-        campo = "utilizador" if "username" in str(err) else "email"
-        return jsonify({"erro": f"Este {campo} já está registado."}), 409
+    except Exception as e:
+        err = str(e)
+        if "username" in err:
+            return jsonify({"erro": "Este utilizador já existe."}), 409
+        if "email" in err:
+            return jsonify({"erro": "Este email já está registado."}), 409
+        return jsonify({"erro": "Erro ao criar conta."}), 409
 
 
 @app.route("/auth/login", methods=["POST"])
 def login():
-    """Autentica um utilizador e retorna um token de sessão."""
     body     = request.get_json()
     username = body.get("username", "").strip()
     senha    = body.get("senha",    "")
@@ -102,7 +123,7 @@ def login():
         return jsonify({"erro": "Preenche o utilizador e a senha."}), 400
 
     conn   = db_connect()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cursor.execute(
         "SELECT * FROM utilizadores WHERE (username = %s OR email = %s) AND senha = %s",
         (username, username, sha256(senha))
@@ -116,42 +137,32 @@ def login():
 
     token = secrets.token_hex(32)
     _sessoes[token] = {"id": user["id"], "username": user["username"], "nome": user["nome"]}
-
     return jsonify({"token": token, "nome": user["nome"], "username": user["username"]})
 
 
 @app.route("/auth/logout", methods=["POST"])
 def logout():
-    """Termina a sessão do utilizador."""
     _sessoes.pop(get_token(request), None)
     return jsonify({"mensagem": "Sessão terminada."})
 
 
-# ----------------------------------------------------------
-# PRODUTOS — CRUD
-# ----------------------------------------------------------
-
 @app.route("/produtos", methods=["GET"])
 def listar():
-    """Retorna todos os produtos ordenados por id descendente."""
     if not autenticado(request):
         return jsonify({"erro": "Não autorizado."}), 401
-
     conn   = db_connect()
-    cursor = conn.cursor(dictionary=True)
+    cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cursor.execute("SELECT * FROM produtos ORDER BY id DESC")
     produtos = cursor.fetchall()
     cursor.close()
     conn.close()
-    return jsonify(produtos)
+    return jsonify([dict(p) for p in produtos])
 
 
 @app.route("/produtos", methods=["POST"])
 def criar():
-    """Insere um novo produto na base de dados."""
     if not autenticado(request):
         return jsonify({"erro": "Não autorizado."}), 401
-
     body      = request.get_json()
     nome      = body.get("nome",      "").strip()
     categoria = body.get("categoria", "").strip()
@@ -164,11 +175,11 @@ def criar():
     conn   = db_connect()
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO produtos (nome, categoria, quantidade, preco) VALUES (%s, %s, %s, %s)",
+        "INSERT INTO produtos (nome, categoria, quantidade, preco) VALUES (%s, %s, %s, %s) RETURNING id",
         (nome, categoria, quantidade, preco)
     )
+    novo_id = cursor.fetchone()[0]
     conn.commit()
-    novo_id = cursor.lastrowid
     cursor.close()
     conn.close()
     return jsonify({"mensagem": "Produto criado.", "id": novo_id}), 201
@@ -176,10 +187,8 @@ def criar():
 
 @app.route("/produtos/<int:pid>", methods=["PUT"])
 def actualizar(pid):
-    """Actualiza os dados de um produto existente."""
     if not autenticado(request):
         return jsonify({"erro": "Não autorizado."}), 401
-
     body   = request.get_json()
     conn   = db_connect()
     cursor = conn.cursor()
@@ -195,10 +204,8 @@ def actualizar(pid):
 
 @app.route("/produtos/<int:pid>", methods=["DELETE"])
 def eliminar(pid):
-    """Remove um produto da base de dados."""
     if not autenticado(request):
         return jsonify({"erro": "Não autorizado."}), 401
-
     conn   = db_connect()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM produtos WHERE id = %s", (pid,))
@@ -208,9 +215,6 @@ def eliminar(pid):
     return jsonify({"mensagem": "Produto eliminado."})
 
 
-# ----------------------------------------------------------
-# ENTRADA
-# ----------------------------------------------------------
-
 if __name__ == "__main__":
+    init_db()
     app.run(host="0.0.0.0", port=5000, debug=True)
